@@ -152,19 +152,18 @@ class DomainGeneratorTrainer:
         return train_dataset, val_dataset
     
     def _tokenize_texts(self, texts: List[str]) -> Dataset:
-        """Tokenize text data for training"""
+        """FIXED: Tokenize text data for training without tensor dimension issues"""
         def tokenize_function(examples):
-            # Tokenize with padding and truncation
+            # FIXED: Tokenize without return_tensors to avoid dimension issues
             tokenized = self.tokenizer(
                 examples["text"],
                 truncation=True,
-                padding="max_length",
-                max_length=self.config.model.max_length,
-                return_tensors="pt"
+                padding=False,  # Let DataCollator handle padding
+                max_length=self.config.model.max_length
             )
             
-            # Set labels for causal language modeling
-            tokenized["labels"] = tokenized["input_ids"].clone()
+            # Set labels for causal language modeling (copy of input_ids)
+            tokenized["labels"] = tokenized["input_ids"].copy()
             
             return tokenized
         
@@ -173,7 +172,9 @@ class DomainGeneratorTrainer:
         dataset = dataset.map(
             tokenize_function,
             batched=True,
-            remove_columns=dataset.column_names
+            batch_size=50,  # Smaller batches for stability
+            remove_columns=dataset.column_names,
+            num_proc=1  # Single process to avoid issues
         )
         
         return dataset
@@ -406,41 +407,45 @@ class CheckpointSaverCallback:
                 json.dump(checkpoint_info, f, indent=2)
 
 def create_model_configs() -> Dict[str, Dict]:
-    """Create configurations for lightweight models that work without authentication"""
+    """Create configurations for Phi-3-mini and Llama-3.2-1B models"""
     
     configs = {
-        "llama-1b": {
-            "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",  # 1.1B params, open access
+        "llama-3.2-1b": {
+            "model_name": "meta-llama/Llama-3.2-1B-Instruct",  # 1B params
+            "display_name": "Llama 3.2 1B",
+            "parameters": "1B (~3.5GB)",
             "lora_config": LoRAConfig(
-                r=8,  # Reduced for faster training
-                lora_alpha=16,
+                r=16,
+                lora_alpha=32,
                 target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
                 lora_dropout=0.1
             ),
             "training_config": TrainingConfig(
                 per_device_train_batch_size=2,
-                gradient_accumulation_steps=4,
+                gradient_accumulation_steps=8,
                 learning_rate=2e-4,
-                num_epochs=3,  # Reduced epochs for demo
-                save_steps=100,
-                eval_steps=100
+                num_epochs=3,
+                save_steps=500,
+                eval_steps=500
             )
         },
-        "phi-1.5": {
-            "model_name": "microsoft/phi-1_5",  # 1.3B params, open access
+        "phi-3-mini": {
+            "model_name": "microsoft/Phi-3-mini-4k-instruct",  # 3.8B params
+            "display_name": "Phi-3 Mini",
+            "parameters": "3.8B (~7.5GB)",
             "lora_config": LoRAConfig(
-                r=8,  # Reduced for faster training
-                lora_alpha=16,
-                target_modules=["Wqkv", "out_proj"],  # Phi-1.5 specific modules
+                r=16,
+                lora_alpha=32,
+                target_modules=["qkv_proj", "o_proj"],  # Phi-3 specific modules
                 lora_dropout=0.1
             ),
             "training_config": TrainingConfig(
-                per_device_train_batch_size=2,
-                gradient_accumulation_steps=4,
-                learning_rate=2e-4,
-                num_epochs=3,  # Reduced epochs for demo
-                save_steps=100,
-                eval_steps=100
+                per_device_train_batch_size=1,  # Smaller batch for larger model
+                gradient_accumulation_steps=16,
+                learning_rate=1e-4,
+                num_epochs=3,
+                save_steps=500,
+                eval_steps=500
             )
         }
     }
