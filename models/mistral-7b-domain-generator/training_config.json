@@ -1,0 +1,10 @@
+{
+  "model_name": "mistralai/Mistral-7B-Instruct-v0.1",
+  "dataset_path": "data/processed/phi2_mistral_training_dataset.json",
+  "output_dir": "models/mistral-7b-domain-generator",
+  "max_length": 512,
+  "num_epochs": 1,
+  "batch_size": 1,
+  "learning_rate": 0.0001,
+  "gradient_accumulation_steps": 16
+}

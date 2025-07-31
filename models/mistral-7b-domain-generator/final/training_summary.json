@@ -1,0 +1,10 @@
+{
+  "model_name": "mistralai/Mistral-7B-Instruct-v0.1",
+  "training_examples": 40,
+  "epochs": 1,
+  "status": "environment_limited",
+  "note": "Training configured but needs clean environment to execute",
+  "recommended_platform": "Google Colab",
+  "timestamp": "2025-07-31 16:43:26",
+  "estimated_training_time": "30-45 minutes"
+}
