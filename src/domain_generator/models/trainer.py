@@ -288,16 +288,19 @@ class DomainGeneratorTrainer:
         self.progress_bar = tqdm(total=total_steps, desc="Training Progress")
         
         # Add custom callback for progress tracking
-        class ProgressCallback:
+        from transformers import TrainerCallback
+        
+        class ProgressCallback(TrainerCallback):
             def __init__(self, progress_bar, tensorboard_writer):
                 self.progress_bar = progress_bar
                 self.tensorboard_writer = tensorboard_writer
                 
             def on_step_end(self, args, state, control, model=None, **kwargs):
-                self.progress_bar.update(1)
+                if self.progress_bar:
+                    self.progress_bar.update(1)
                 
                 # Log to TensorBoard
-                if state.log_history:
+                if state.log_history and self.tensorboard_writer:
                     latest_logs = state.log_history[-1]
                     for key, value in latest_logs.items():
                         if isinstance(value, (int, float)):
@@ -428,7 +431,7 @@ def create_model_configs() -> Dict[str, Dict]:
             "lora_config": LoRAConfig(
                 r=8,  # Reduced for faster training
                 lora_alpha=16,
-                target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+                target_modules=["Wqkv", "out_proj"],  # Phi-1.5 specific modules
                 lora_dropout=0.1
             ),
             "training_config": TrainingConfig(
