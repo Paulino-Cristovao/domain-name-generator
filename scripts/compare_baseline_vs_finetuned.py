@@ -314,8 +314,9 @@ def main():
     
     # Define model paths (update these paths to your trained models)
     model_paths = {
-        "llama-3.2-1b": "models/llama-3.2-1b-domain-generator/final",
-        "phi-3-mini": "models/phi-3-mini-domain-generator/final"
+        "tinyllama-1.1b": "models/tinyllama-1.1b-domain-generator/final",
+        "phi-1.5": "models/phi-1.5-domain-generator/final",
+        "distilgpt2": "models/distilgpt2-domain-generator/final"
     }
     
     results = {}
