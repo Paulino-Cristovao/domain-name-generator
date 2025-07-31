@@ -407,13 +407,32 @@ class CheckpointSaverCallback:
                 json.dump(checkpoint_info, f, indent=2)
 
 def create_model_configs() -> Dict[str, Dict]:
-    """Create configurations for open-access models that don't require authentication"""
+    """Create configurations for Phi-2 and Mistral 7B models"""
     
     configs = {
-        "tinyllama-1.1b": {
-            "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",  # 1.1B params, open access
-            "display_name": "TinyLlama 1.1B",
-            "parameters": "1.1B (~4.4GB)",
+        "phi-2": {
+            "model_name": "microsoft/phi-2",  # 2.7B params
+            "display_name": "Phi-2",
+            "parameters": "2.7B (~3.2GB 4-bit)",
+            "lora_config": LoRAConfig(
+                r=16,
+                lora_alpha=32,
+                target_modules=["Wqkv", "out_proj"],  # Phi-2 specific modules
+                lora_dropout=0.1
+            ),
+            "training_config": TrainingConfig(
+                per_device_train_batch_size=1,  # Smaller batch for larger model
+                gradient_accumulation_steps=16,
+                learning_rate=2e-4,
+                num_epochs=1,  # Single epoch for testing
+                save_steps=500,
+                eval_steps=500
+            )
+        },
+        "mistral-7b": {
+            "model_name": "mistralai/Mistral-7B-Instruct-v0.1",  # 7B params
+            "display_name": "Mistral 7B",
+            "parameters": "7B (~3.8GB GPTQ/4-bit)",
             "lora_config": LoRAConfig(
                 r=16,
                 lora_alpha=32,
@@ -421,48 +440,10 @@ def create_model_configs() -> Dict[str, Dict]:
                 lora_dropout=0.1
             ),
             "training_config": TrainingConfig(
-                per_device_train_batch_size=2,
-                gradient_accumulation_steps=8,
-                learning_rate=2e-4,
-                num_epochs=3,
-                save_steps=500,
-                eval_steps=500
-            )
-        },
-        "phi-1.5": {
-            "model_name": "microsoft/phi-1_5",  # 1.3B params, open access
-            "display_name": "Phi-1.5",
-            "parameters": "1.3B (~2.6GB)",
-            "lora_config": LoRAConfig(
-                r=16,
-                lora_alpha=32,
-                target_modules=["Wqkv", "out_proj"],  # Phi-1.5 specific modules
-                lora_dropout=0.1
-            ),
-            "training_config": TrainingConfig(
-                per_device_train_batch_size=2,
-                gradient_accumulation_steps=8,
-                learning_rate=2e-4,
-                num_epochs=3,
-                save_steps=500,
-                eval_steps=500
-            )
-        },
-        "distilgpt2": {
-            "model_name": "distilgpt2",  # 82M params, very lightweight
-            "display_name": "DistilGPT-2",
-            "parameters": "82M (~330MB)",
-            "lora_config": LoRAConfig(
-                r=8,
-                lora_alpha=16,
-                target_modules=["c_attn", "c_proj"],
-                lora_dropout=0.1
-            ),
-            "training_config": TrainingConfig(
-                per_device_train_batch_size=4,
-                gradient_accumulation_steps=4,
-                learning_rate=3e-4,
-                num_epochs=3,
+                per_device_train_batch_size=1,  # Smaller batch for larger model
+                gradient_accumulation_steps=16,
+                learning_rate=1e-4,  # Lower learning rate for larger model
+                num_epochs=1,  # Single epoch for testing
                 save_steps=500,
                 eval_steps=500
             )
@@ -480,7 +461,7 @@ if __name__ == "__main__":
     model_configs = create_model_configs()
     
     # Select model configuration (change key to train different models)
-    selected_model = "tinyllama-1.1b"  # or "phi-1.5" or "distilgpt2"
+    selected_model = "phi-2"  # or "mistral-7b"
     model_config = model_configs[selected_model]
     
     # Update config with selected model settings
