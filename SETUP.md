@@ -1,38 +1,42 @@
 # Domain Name Generator - Setup Instructions
 
-This repository contains a comprehensive domain name generation system with multiple models, evaluation framework, and reproducible experiments.
+**NEW**: Now features Phi-2 and Mistral 7B models with 1-epoch training, real-time tqdm progress bars, and Jupyter notebook support.
 
-## 🎯 Quick Start
+## 🚀 Ultra-Quick Start (1 Epoch Training)
 
 ```bash
 # Clone repository
-git clone <your-repo-url>
+git clone https://github.com/Paulino-Cristovao/domain-name-generator.git
 cd domain-name-generator
 
-# Install dependencies
-pip install -r requirements.txt
+# Install core dependencies (no API keys needed)
+pip install torch transformers peft accelerate datasets tqdm
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your API keys
+# Option 1: Google Colab (Recommended - Zero setup)
+# Open domain_generator_colab_open_access.ipynb in Google Colab
 
-# Run setup test
-python scripts/test_setup.py
+# Option 2: Local training with progress bars
+python run_training_demo.py
 
-# Start with Jupyter notebooks
-jupyter notebook notebooks/
+# Option 3: Jupyter notebook
+jupyter notebook domain_generator_local_training.ipynb
 ```
 
 ## 📋 Prerequisites
 
-### System Requirements
-- **Mac M1/M2** (optimized for Apple Silicon)
+### System Requirements (Updated)
+- **Mac M1/M2** (optimized) or **NVIDIA GPU** with 8GB+ VRAM
 - **Python 3.9+**
-- **8GB+ RAM** (16GB recommended)
-- **10GB+ disk space** for models
+- **8GB+ RAM** for training
+- **5GB+ disk space** for models (reduced with 4-bit quantization)
 
-### API Keys Required
-- **OpenAI API Key** (for GPT-4o evaluation)
+### Training Times (1 Epoch)
+- **Phi-2**: 15-20 minutes
+- **Mistral 7B**: 30-45 minutes  
+- **Both models**: ~45-65 minutes total
+
+### Optional API Keys
+- **OpenAI API Key** (for advanced evaluation only)
 - **Weights & Biases API Key** (for experiment tracking)
 
 ## 🔧 Installation
