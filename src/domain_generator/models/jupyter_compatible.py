@@ -181,10 +181,7 @@ class JupyterDomainGenerator:
         """Get approximate model size information."""
         size_map = {
             "meta-llama/Llama-3.2-1B-Instruct": "1B (~3.5GB)",
-            "microsoft/Phi-3-mini-4k-instruct": "3.8B (~3.8GB)",
-            "microsoft/DialoGPT-medium": "355M (~1.4GB)",
-            "gpt2": "124M (~500MB)", 
-            "distilgpt2": "82M (~330MB)"
+            "microsoft/Phi-3-mini-4k-instruct": "3.8B (~3.8GB)"
         }
         return size_map.get(self.config.model.model_name, "Unknown")
     
@@ -286,7 +283,7 @@ def quick_start_demo() -> None:
     print("  2. model_path = generator.train_model()         # Train on your data")
     print("  3. generator.load_model(model_path)             # Load trained model") 
     print("  4. domains = generator.generate_domains('your business description')")
-    print("\n🔧 Available models: llama-3.2-1b, phi-3-mini, dialogpt-medium, gpt2-small, distilgpt2")
+    print("\n🔧 Available models: llama-3.2-1b, phi-3-mini")
 
 if __name__ == "__main__":
     quick_start_demo()

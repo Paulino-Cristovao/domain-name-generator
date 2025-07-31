@@ -14,6 +14,8 @@ import numpy as np
 from pathlib import Path
 import wandb
 from dotenv import load_dotenv
+from tqdm.auto import tqdm
+from torch.utils.tensorboard import SummaryWriter
 
 # Load environment variables
 load_dotenv()
@@ -29,6 +31,8 @@ class DomainGeneratorTrainer:
         self.model = None
         self.peft_model = None
         self.device = config.device
+        self.tensorboard_writer = None
+        self.progress_bar = None
         
     def setup_model_and_tokenizer(self, model_name: str):
         """Initialize model and tokenizer with memory optimizations"""
@@ -129,8 +133,14 @@ class DomainGeneratorTrainer:
         
         # Split into train/val (90/10)
         split_idx = int(len(train_texts) * 0.9)
-        train_texts = train_texts[:split_idx]
+        train_texts_split = train_texts[:split_idx]
         val_texts = train_texts[split_idx:]
+        
+        # Ensure we have some validation data
+        if len(val_texts) == 0:
+            val_texts = train_texts[-10:]  # Use last 10 samples for validation
+        
+        train_texts = train_texts_split
         
         # Tokenize datasets
         train_dataset = self._tokenize_texts(train_texts)
@@ -168,8 +178,14 @@ class DomainGeneratorTrainer:
         
         return dataset
     
-    def create_training_arguments(self, output_dir: str) -> TrainingArguments:
+    def create_training_arguments(self, output_dir: str, wandb_enabled: bool = True) -> TrainingArguments:
         """Create training arguments optimized for Mac M1"""
+        
+        # Configure reporting based on W&B availability
+        report_to = []
+        if wandb_enabled:
+            report_to.append("wandb")
+        report_to.append("tensorboard")
         
         return TrainingArguments(
             output_dir=output_dir,
@@ -192,7 +208,7 @@ class DomainGeneratorTrainer:
             bf16=self.device == "mps",  # Use BF16 on Mac M1
             dataloader_pin_memory=self.config.training.dataloader_pin_memory,
             gradient_checkpointing=self.config.training.gradient_checkpointing,
-            report_to=["wandb", "tensorboard"],
+            report_to=report_to,
             logging_dir=f"{output_dir}/logs",
             remove_unused_columns=False,
             ddp_find_unused_parameters=False,
@@ -201,21 +217,33 @@ class DomainGeneratorTrainer:
     def train(self, dataset_path: str, output_dir: str, model_name: str) -> str:
         """Complete training pipeline with W&B integration"""
         
-        # Initialize Weights & Biases
-        wandb.init(
-            project=os.getenv("WANDB_PROJECT", "domain-name-generator"),
-            entity=os.getenv("WANDB_ENTITY"),
-            config={
-                "model_name": model_name,
-                "dataset_path": dataset_path,
-                "lora_r": self.config.lora.r,
-                "lora_alpha": self.config.lora.lora_alpha,
-                "learning_rate": self.config.training.learning_rate,
-                "batch_size": self.config.training.per_device_train_batch_size,
-                "epochs": self.config.training.num_epochs,
-                "device": self.device
-            }
-        )
+        # Initialize Weights & Biases with proper settings
+        wandb_enabled = os.getenv("WANDB_API_KEY") is not None
+        
+        if wandb_enabled:
+            try:
+                wandb.init(
+                    project=os.getenv("WANDB_PROJECT", "domain-name-generator"),
+                    entity=os.getenv("WANDB_ENTITY"),
+                    settings=wandb.Settings(init_timeout=120),
+                    config={
+                        "model_name": model_name,
+                        "dataset_path": dataset_path,
+                        "lora_r": self.config.lora.r,
+                        "lora_alpha": self.config.lora.lora_alpha,
+                        "learning_rate": self.config.training.learning_rate,
+                        "batch_size": self.config.training.per_device_train_batch_size,
+                        "epochs": self.config.training.num_epochs,
+                        "device": self.device
+                    }
+                )
+                print("✅ W&B initialized successfully")
+            except Exception as e:
+                print(f"⚠️  W&B initialization failed: {e}")
+                print("📊 Continuing without W&B logging")
+                wandb_enabled = False
+        else:
+            print("📊 W&B disabled (no API key found)")
         
         # Setup model and tokenizer
         self.setup_model_and_tokenizer(model_name)
@@ -227,7 +255,7 @@ class DomainGeneratorTrainer:
         train_dataset, val_dataset = self.prepare_dataset(dataset_path)
         
         # Create training arguments
-        training_args = self.create_training_arguments(output_dir)
+        training_args = self.create_training_arguments(output_dir, wandb_enabled)
         
         # Data collator for language modeling
         data_collator = DataCollatorForLanguageModeling(
@@ -235,7 +263,7 @@ class DomainGeneratorTrainer:
             mlm=False,  # Causal LM, not masked LM
         )
         
-        # Create trainer with checkpoint callback
+        # Create trainer with early stopping
         trainer = Trainer(
             model=self.peft_model,
             args=training_args,
@@ -243,28 +271,67 @@ class DomainGeneratorTrainer:
             eval_dataset=val_dataset,
             data_collator=data_collator,
             callbacks=[
-                EarlyStoppingCallback(early_stopping_patience=3),
-                CheckpointSaverCallback(save_top_k=2)  # Save top 2 checkpoints
+                EarlyStoppingCallback(early_stopping_patience=3)
             ]
         )
         
-        # Train the model
+        # Train the model with progress tracking
         print("Starting training...")
+        
+        # Setup TensorBoard writer
+        tensorboard_log_dir = f"{output_dir}/logs"
+        os.makedirs(tensorboard_log_dir, exist_ok=True)
+        self.tensorboard_writer = SummaryWriter(log_dir=tensorboard_log_dir)
+        
+        # Add custom progress tracking
+        total_steps = len(train_dataset) * self.config.training.num_epochs // (self.config.training.per_device_train_batch_size * self.config.training.gradient_accumulation_steps)
+        self.progress_bar = tqdm(total=total_steps, desc="Training Progress")
+        
+        # Add custom callback for progress tracking
+        class ProgressCallback:
+            def __init__(self, progress_bar, tensorboard_writer):
+                self.progress_bar = progress_bar
+                self.tensorboard_writer = tensorboard_writer
+                
+            def on_step_end(self, args, state, control, model=None, **kwargs):
+                self.progress_bar.update(1)
+                
+                # Log to TensorBoard
+                if state.log_history:
+                    latest_logs = state.log_history[-1]
+                    for key, value in latest_logs.items():
+                        if isinstance(value, (int, float)):
+                            self.tensorboard_writer.add_scalar(key, value, state.global_step)
+                            
+        progress_callback = ProgressCallback(self.progress_bar, self.tensorboard_writer)
+        trainer.add_callback(progress_callback)
+        
         trainer.train()
+        
+        # Clean up progress bar
+        if self.progress_bar:
+            self.progress_bar.close()
+        if self.tensorboard_writer:
+            self.tensorboard_writer.close()
         
         # Save final model
         final_model_path = f"{output_dir}/final"
         trainer.save_model(final_model_path)
         self.tokenizer.save_pretrained(final_model_path)
         
-        # Log final metrics to W&B
-        wandb.log({
-            "final_model_path": final_model_path,
-            "training_completed": True
-        })
-        
-        # Finish W&B run
-        wandb.finish()
+        # Log final metrics to W&B if enabled
+        if wandb_enabled:
+            try:
+                wandb.log({
+                    "final_model_path": final_model_path,
+                    "training_completed": True
+                })
+                wandb.finish()
+                print("✅ W&B logging completed")
+            except Exception as e:
+                print(f"⚠️  W&B logging failed: {e}")
+        else:
+            print("📊 W&B logging skipped")
         
         print(f"Training completed. Model saved to: {final_model_path}")
         return final_model_path
@@ -298,9 +365,16 @@ class CheckpointSaverCallback:
     def __init__(self, save_top_k: int = 2):
         self.save_top_k = save_top_k
         self.best_scores = []
+    
+    def on_init_end(self, args, state, control, **kwargs):
+        """Initialize callback"""
+        pass
         
     def on_evaluate(self, args, state, control, model, logs=None, **kwargs):
         """Save checkpoint if it's among the top-k performers"""
+        if not logs:
+            return
+            
         current_score = logs.get("eval_loss", float('inf'))
         
         # Keep track of best scores
@@ -329,82 +403,41 @@ class CheckpointSaverCallback:
                 json.dump(checkpoint_info, f, indent=2)
 
 def create_model_configs() -> Dict[str, Dict]:
-    """Create configurations for different models optimized for Mac M1 8GB with <4GB models"""
+    """Create configurations for lightweight models that work without authentication"""
     
     configs = {
-        "dialogpt-medium": {
-            "model_name": "microsoft/DialoGPT-medium",  # 355M parameters (~1.4GB)
+        "llama-1b": {
+            "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",  # 1.1B params, open access
             "lora_config": LoRAConfig(
-                r=16,
-                lora_alpha=32,
-                target_modules=["c_attn", "c_proj"],  # GPT-2 style attention modules
-                lora_dropout=0.1
-            ),
-            "training_config": TrainingConfig(
-                per_device_train_batch_size=4,
-                gradient_accumulation_steps=2,
-                learning_rate=3e-4,
-                num_epochs=2
-            )
-        },
-        "gpt2-small": {
-            "model_name": "gpt2",  # 124M parameters (~500MB)
-            "lora_config": LoRAConfig(
-                r=8,
+                r=8,  # Reduced for faster training
                 lora_alpha=16,
-                target_modules=["c_attn", "c_proj"],
-                lora_dropout=0.1
-            ),
-            "training_config": TrainingConfig(
-                per_device_train_batch_size=8,
-                gradient_accumulation_steps=1,
-                learning_rate=5e-4,
-                num_epochs=2
-            )
-        },
-        "distilgpt2": {
-            "model_name": "distilgpt2",  # 82M parameters (~330MB)
-            "lora_config": LoRAConfig(
-                r=8,
-                lora_alpha=16,
-                target_modules=["c_attn", "c_proj"],
-                lora_dropout=0.05
-            ),
-            "training_config": TrainingConfig(
-                per_device_train_batch_size=8,
-                gradient_accumulation_steps=1,
-                learning_rate=5e-4,
-                num_epochs=2
-            )
-        },
-        "llama-3.2-1b": {
-            "model_name": "meta-llama/Llama-3.2-1B-Instruct",  # 1B parameters (~3.5GB)
-            "lora_config": LoRAConfig(
-                r=16,
-                lora_alpha=32,
-                target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],  # Llama attention modules
+                target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
                 lora_dropout=0.1
             ),
             "training_config": TrainingConfig(
                 per_device_train_batch_size=2,
                 gradient_accumulation_steps=4,
                 learning_rate=2e-4,
-                num_epochs=2
+                num_epochs=3,  # Reduced epochs for demo
+                save_steps=100,
+                eval_steps=100
             )
         },
-        "phi-3-mini": {
-            "model_name": "microsoft/Phi-3-mini-4k-instruct",  # 3.8B parameters (~3.8GB)
+        "phi-1.5": {
+            "model_name": "microsoft/phi-1_5",  # 1.3B params, open access
             "lora_config": LoRAConfig(
-                r=16,
-                lora_alpha=32,
-                target_modules=["qkv_proj", "o_proj"],  # Phi-3 attention modules
+                r=8,  # Reduced for faster training
+                lora_alpha=16,
+                target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
                 lora_dropout=0.1
             ),
             "training_config": TrainingConfig(
-                per_device_train_batch_size=1,
-                gradient_accumulation_steps=8,
-                learning_rate=1e-4,
-                num_epochs=2
+                per_device_train_batch_size=2,
+                gradient_accumulation_steps=4,
+                learning_rate=2e-4,
+                num_epochs=3,  # Reduced epochs for demo
+                save_steps=100,
+                eval_steps=100
             )
         }
     }
@@ -416,20 +449,23 @@ if __name__ == "__main__":
     config = Config()
     trainer = DomainGeneratorTrainer(config)
     
-    # Train DialoGPT-medium model (M1 optimized)
+    # Example: Train specific model
     model_configs = create_model_configs()
-    dialogpt_config = model_configs["dialogpt-medium"]
     
-    # Update config with DialoGPT settings
-    config.model.model_name = dialogpt_config["model_name"]
-    config.lora = dialogpt_config["lora_config"]
-    config.training = dialogpt_config["training_config"]
+    # Select model configuration (change key to train different models)
+    selected_model = "llama-3.2-1b"  # or "phi-3-mini"
+    model_config = model_configs[selected_model]
+    
+    # Update config with selected model settings
+    config.model.model_name = model_config["model_name"]
+    config.lora = model_config["lora_config"] 
+    config.training = model_config["training_config"]
     
     # Train the model
     model_path = trainer.train(
         dataset_path="data/processed/training_dataset.json",
-        output_dir="models/dialogpt-medium-domain-generator",
-        model_name=dialogpt_config["model_name"]
+        output_dir=f"models/{selected_model}-domain-generator",
+        model_name=model_config["model_name"]
     )
     
-    print(f"DialoGPT-medium model training completed: {model_path}")
+    print(f"{selected_model} model training completed: {model_path}")

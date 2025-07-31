@@ -34,7 +34,7 @@ class LoRAConfig:
 class TrainingConfig:
     """Training configuration optimized for Mac M1 8GB"""
     output_dir: str = "./models"
-    num_epochs: int = 2
+    num_epochs: int = 10
     per_device_train_batch_size: int = 1  # Small for memory efficiency
     per_device_eval_batch_size: int = 1
     gradient_accumulation_steps: int = 8  # Compensate for small batch size
