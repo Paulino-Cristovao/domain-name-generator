@@ -1,0 +1,17 @@
+{
+  "model_name": "mistralai/Mistral-7B-Instruct-v0.1",
+  "model_key": "mistral-7b",
+  "parameters": "7B",
+  "training_examples": 40,
+  "epochs": 1,
+  "total_steps": 2,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 16,
+  "learning_rate": 0.0001,
+  "initial_loss": 3.5,
+  "final_loss": 2.35,
+  "loss_improvement": 1.15,
+  "estimated_time": "30-45 minutes",
+  "status": "simulated_training_complete",
+  "timestamp": "2025-07-31 16:50:37"
+}

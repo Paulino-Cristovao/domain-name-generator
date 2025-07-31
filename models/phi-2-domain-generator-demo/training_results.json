@@ -1,0 +1,17 @@
+{
+  "model_name": "microsoft/phi-2",
+  "model_key": "phi-2",
+  "parameters": "2.7B",
+  "training_examples": 40,
+  "epochs": 1,
+  "total_steps": 5,
+  "batch_size": 1,
+  "gradient_accumulation_steps": 8,
+  "learning_rate": 0.0002,
+  "initial_loss": 3.5,
+  "final_loss": 1.6600000000000001,
+  "loss_improvement": 1.8399999999999999,
+  "estimated_time": "15-20 minutes",
+  "status": "simulated_training_complete",
+  "timestamp": "2025-07-31 16:50:37"
+}
